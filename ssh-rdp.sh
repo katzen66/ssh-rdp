@@ -21,6 +21,7 @@
     EVDFILE="$HOME/.config/ssh-rdp.input.evd.config"  #Holds the name of the forwarded evdev device
     KBDFILE="$HOME/.config/ssh-rdp.input.kbd.config"  #Holds the name of the forwarded keyboard evdev device
     HKFILE="$HOME/.config/ssh-rdp.input.hk.config"    #where the keypress codes to switch fullscreen and forward reside
+    INPUT_PIPE="-"
 
 #Encoding:
     AUDIO_CAPTURE_SOURCE="AUTO" # "pulseaudio name like alsa_output.pci-0000_00_1b.0.analog-stereo.monitor" or "guess"
@@ -64,7 +65,7 @@
     #Remote window title
     #WTITLE="$RUSER@$RHOST""$RDISPLAY"
     WTITLE="ssh-rdp""-"\["$$"\]
-
+	TERM="kitty"
 # Misc
     SSH_CIPHER="" #Optionally, force an ssh cipher to be used
     #SSH_CIPHER="aes256-gcm@openssh.com"
@@ -286,13 +287,16 @@ finish() {
 #    $SSH_EXEC "killall $FFMPEGEXE" &>/dev/null
     $SSH_EXEC "kill \$(pidof FFPLAYEXE)" &>/dev/null
     $SSH_EXEC "kill \$(pidof $FFMPEGEXE)" &>/dev/null
+    $SSH_EXEC "kill \$(pidof $PORTALEXE)" &>/dev/null
     sleep 1
 #   $SSH_EXEC "killall -9 $FFPLAYEXE" &>/dev/null
 #   $SSH_EXEC "killall -9 $FFMPEGEXE" &>/dev/null
     $SSH_EXEC "kill -9 \$(pidof $FFPLAYEXE)" &>/dev/null
     $SSH_EXEC "kill -9 \$(pidof $FFMPEGEXE)" &>/dev/null
+    $SSH_EXEC "kill -9 \$(pidof $PORTALEXE)" &>/dev/null
     $SSH_EXEC "unlink $FFMPEGEXE" &>/dev/null
     $SSH_EXEC "unlink $FFPLAYEXE" &>/dev/null
+    $SSH_EXEC "unlink $PORTALEXE" &>/dev/null
     #kill multiplexing ssh
     ssh -O exit -o ControlPath="$SSH_CONTROL_PATH" $RHOST 2>/dev/null
     kill $(list_descendants $$) &>/dev/null
@@ -480,6 +484,10 @@ do
         --rexec-late)
             REXEC_LATE="$2"
             shift ; shift ;;
+        --use-portals)
+            PORTAL="$2"
+            INPUT_PIPE="/tmp/gfifo"
+            shift ; shift ;;
         *)
             shift ;;
     esac
@@ -491,13 +499,13 @@ done
 
     #mpv, less latency, possibly hardware decoding, may hammer the cpu.
         #Untimed:
-            #VIDEOPLAYER="taskset -c 0 mpv - --input-cursor=no --input-vo-keyboard=no --input-default-bindings=no --hwdec=auto --title="$WTITLE" --untimed --no-cache --profile=low-latency --opengl-glfinish=yes --vulkan-swap-mode=immediate --swapchain-depth=1 --opengl-swapinterval=0"
+            VIDEOPLAYER="taskset -c 0 mpv - --input-cursor=no --input-vo-keyboard=no --input-default-bindings=no --hwdec=auto --title="$WTITLE" --untimed --no-cache --profile=low-latency --opengl-glfinish=yes --opengl-swapinterval=0"
 
         #speed=2 instead of untimed, seems smoother:
-            VIDEOPLAYER="taskset -c 0 mpv - --input-cursor=no --input-vo-keyboard=no --input-default-bindings=no --hwdec=auto --title="$WTITLE" --speed=2 --no-cache --profile=low-latency --opengl-glfinish=yes --opengl-swapinterval=0 --vulkan-swap-mode=immediate --swapchain-depth=1 $VPLAYEROPTS"
+            #VIDEOPLAYER="taskset -c 0 mpv - --input-cursor=no --input-vo-keyboard=no --input-default-bindings=no --hwdec=auto --title="$WTITLE" --speed=2 --no-cache --opengl-glfinish=yes --opengl-swapinterval=0 $VPLAYEROPTS"
 
         #less hammering, experimental, introduce some stuttering :/
-            #VIDEOPLAYER="taskset -c 0 mpv - --input-cursor=no --input-vo-keyboard=no --input-default-bindings=no --hwdec=auto --title="$WTITLE" --speed=2 --no-cache --profile=low-latency --opengl-glfinish=yes --opengl-swapinterval=0 --vulkan-swap-mode=immediate --swapchain-depth=1 --cache-pause=yes --cache-pause-wait=0.001"
+            #VIDEOPLAYER="taskset -c 0 mpv - --input-cursor=no --input-vo-keyboard=no --input-default-bindings=no --hwdec=auto --title="$WTITLE" --speed=2 --no-cache --profile=low-latency --opengl-glfinish=yes --opengl-swapinterval=0 --cache-pause=yes --cache-pause-wait=0.001"
 
         #older mpv versions, vaapi
             #VIDEOPLAYER="taskset -c 0 mpv - --input-cursor=no --input-vo-keyboard=no --input-default-bindings=no --hwdec=vaapi --vo=gpu --gpu-api=opengl --title="$WTITLE" --untimed --no-cache --audio-buffer=0  --vd-lavc-threads=1 --cache-pause=no --demuxer-lavf-o=fflags=+nobuffer --demuxer-lavf-analyzeduration=0.1 --video-sync=audio --interpolation=no  --opengl-glfinish=yes --opengl-swapinterval=0"
@@ -550,12 +558,17 @@ done
         echo "                    Use AUTO to guess, use ALL to capture everything."
         echo "                    Eg: alsa_output.pci-0000_00_1b.0.analog-stereo.monitor"
         echo ""
-        echo "    --videoenc      Video encoder can be: cpu,cpurgb,amdgpu,amdgpu_hevc,intelgpu,nvgpu,nvgpu_hevc,zerocopy,custom or show"
+        echo "    --videoenc      Video encoder can be: cpu,cpurgb,amdgpu,amdgpu_hevc,intelgpu,nvgpu,nvgpu_hevc,zerocopy,custom,null or show"
         echo "                    \"zerocopy\" is experimental and causes ffmpeg to use kmsgrab"
         echo "                    to grab the framebuffer and pass frames to vaapi encoder."
         echo "                    You've to run 'setcap cap_sys_admin+ep $(which ffmpeg)' on the server to use zerocopy."
         echo "                    --display, --follow are ignored when using zerocopy."
         echo "                    specify \"show\" to print the options for each preset."
+		echo ""
+        echo "    --use-portals   Use xdg-portals to pick a screen and start stream. Unneeded on X11, needed on Wayland."
+        echo "                    You will have to pick the screen blindly, you'll be dropped with functional input but no video."
+        echo "                    Can be used with ffmpeg (uses a fifo pipe to pass all other options to ffmpeg, laggy)."
+        echo "                    For a pure gstreamer pipeline specify gstreamer."
         echo ""
         echo "    --customv       Specify a string for video encoder stuff when videoenc is set to custom"
         echo "                    Eg: \"-threads 1 -c:v h264_nvenc -preset llhq -delay 0 -zerolatency 1\""
@@ -656,6 +669,7 @@ generate_ICFILE_from_names
     $SSH_EXEC "ln -s \$(which ffmpeg) $FFMPEGEXE"
     FFPLAYEXE=/tmp/ffplay$$
     $SSH_EXEC "ln -s \$(which ffplay) $FFPLAYEXE"
+    PORTALEXE=/tmp/portal$$
 
 #Measure network download speed?
 if [ "$VIDEO_BITRATE_MAX" = "AUTO" ] ; then
@@ -714,7 +728,7 @@ echo
     fi
 
 #Auto video grab size?
-    if [ "$RES" = "AUTO" ] || [ "$RES" = "" ] ; then
+    if [ ! "$VIDEOENC" = "null" ] && [ ! "$VIDEOENC" = "" ] && [ "$RES" = "AUTO" ] || [ "$RES" = "" ] ; then
         print_pending "Guessing remote resolution"
         RES=$($SSH_EXEC "export DISPLAY=$RDISPLAY ; xdpyinfo | awk '/dimensions:/ { print \$2; exit }'")
 #         print_warning "Auto grab resolution: $RES"
@@ -743,6 +757,8 @@ echo
             VIDEO_ENC="$VIDEO_ENC_INTELGPU" ;;
         zerocopy)
             VIDEO_ENC="" ;;
+	    null)
+	        VIDEO_ENC="" ;;
         *)
             print_error "Unsupported video encoder"
             exit ;;
@@ -800,26 +816,65 @@ echo
     #    "$VIDEO_ENC" -f_strict experimental -syncpoints none -f nut -\
     #" | $VIDEOPLAYER
 
-    if [ ! "$VIDEOENC" = "zerocopy" ] ; then
-        $SSH_EXEC sh -c "\
-            export DISPLAY=$RDISPLAY ;\
-            export VAAPI_DISABLE_INTERLACE=1;\
-            $FFMPEGEXE -nostdin -loglevel warning -y -f x11grab "$FOLLOW_STRING" -framerate $FPS -video_size $RES -i "$RDISPLAY""$OFFSET" -sws_flags $SCALE_FLT -b:v "$VIDEO_BITRATE_MAX"k  -maxrate "$VIDEO_BITRATE_MAX"k \
-            "$VIDEO_ENC" -f_strict experimental -syncpoints none -f nut -\
-        " | $VIDEOPLAYER
-    else
-        #Zero copy test:
-        RES=$(sed "s/\x/\:/" <<< "$RES")
-        OFFSET=$(sed "s/\+//" <<< "$OFFSET")
-        OFFSET=$(sed "s/\,/:/" <<< "$OFFSET")
-        if [ ! "$PRESCALE" = "" ] ; then
-            NEWRES=$(sed "s/\x/\:/" <<< "$PRESCALE")
-                else
-            NEWRES=$RES
-        fi
+    if [ ! "$VIDEOENC" = "null" ] && [ "$INPUT_PIPE" = "-" ]; then
+        if [ ! "$VIDEOENC" = "zerocopy" ] ; then
+            $SSH_EXEC sh -c "\
+                export DISPLAY=$RDISPLAY ;\
+                export VAAPI_DISABLE_INTERLACE=1;\
+                $FFMPEGEXE -nostdin -loglevel warning -y -f x11grab "$FOLLOW_STRING" -framerate $FPS -video_size $RES -i "$RDISPLAY""$OFFSET" -sws_flags $SCALE_FLT -b:v "$VIDEO_BITRATE_MAX"k  -maxrate "$VIDEO_BITRATE_MAX"k \
+                "$VIDEO_ENC" -f_strict experimental -syncpoints none -f nut -\
+            " | $VIDEOPLAYER
+        else
+            #Zero copy test:
+            RES=$(sed "s/\x/\:/" <<< "$RES")
+            OFFSET=$(sed "s/\+//" <<< "$OFFSET")
+            OFFSET=$(sed "s/\,/:/" <<< "$OFFSET")
+            if [ ! "$PRESCALE" = "" ] ; then
+                NEWRES=$(sed "s/\x/\:/" <<< "$PRESCALE")
+                    else
+                NEWRES=$RES
+            fi
 
-        $SSH_EXEC sh -c ";\
-                $FFMPEGEXE -nostdin  -loglevel warning  -y -framerate $FPS -f kmsgrab -i -  -sws_flags $SCALE_FLT -b:v "$VIDEO_BITRATE_MAX"k -maxrate "$VIDEO_BITRATE_MAX"k \
-                -vf hwmap=derive_device=vaapi,crop="$RES:$OFFSET",scale_vaapi="$NEWRES":format=nv12 -c:v h264_vaapi -bf 0  -b:v "$VIDEO_BITRATE_MAX"k  -maxrate "$VIDEO_BITRATE_MAX"k -f_strict experimental -syncpoints none  -f nut -\
-                " | $VIDEOPLAYER
+            $SSH_EXEC sh -c ";\
+                    $FFMPEGEXE -nostdin  -loglevel warning  -y -framerate $FPS -f kmsgrab -i -  -sws_flags $SCALE_FLT -b:v "$VIDEO_BITRATE_MAX"k -maxrate "$VIDEO_BITRATE_MAX"k \
+                    -vf hwmap=derive_device=vaapi,crop="$RES:$OFFSET",scale_vaapi="$NEWRES":format=nv12 -c:v h264_vaapi -bf 0  -b:v "$VIDEO_BITRATE_MAX"k  -maxrate "$VIDEO_BITRATE_MAX"k -f_strict experimental -syncpoints none  -f nut -\
+                    " | $VIDEOPLAYER
+        fi
+    else 
+        if [ ! "$INPUT_PIPE" = "-" ] && [ ! "$VIDEOENC" = "null" ] ; then
+            TERMEXE=/tmp/term$$
+            ln -s $(which "${TERM%% *}") 2>/dev/null $TERMEXE
+            TERMCOMMAND=$(echo $TERMEXE $(echo "$TERM" | cut -d' ' -f2-))
+            if [ "$PORTAL" = "ffmpeg" ] ; then
+                $SSH_EXEC "ln -s \$(which open_portal.py) $PORTALEXE"
+                if [ ! "$VIDEOENC" = "zerocopy" ] ; then
+                    $TERMCOMMAND $SSH_EXEC &
+                    $SSH_EXEC sh -c ";\
+                        rm /tmp/gfifo;\
+                        mkfifo /tmp/gfifo;\
+                        $PORTALEXE "$FPS" \&;" &
+                    while ps aux | grep -v grep | grep "$TERMEXE" > /dev/null; do
+                        sleep 0.5;
+                    done
+                    unlink $TERMEXE &>/dev/null
+                    $SSH_EXEC \
+                            "export VAAPI_DISABLE_INTERLACE=1; \
+                            $FFMPEGEXE -loglevel warning -y \
+                            -f rawvideo -pixel_format bgra "$FOLLOW_STRING" -framerate $FPS -video_size $RES \
+                            -i "$INPUT_PIPE" \
+                            -sws_flags $SCALE_FLT -b:v "$VIDEO_BITRATE_MAX"k  -maxrate "$VIDEO_BITRATE_MAX"k \
+                            "$VIDEO_ENC" \
+                            -f_strict experimental -syncpoints none -f nut -" | $VIDEOPLAYER
+                else
+                    echo "Zerocopy is not suported with portals."
+                fi
+            else if [ "$PORTAL" = "gstreamer" ]; then
+                $SSH_EXEC "ln -s \$(which open_portal_direct.py) $PORTALEXE">/dev/null
+                $SSH_EXEC "$PORTALEXE $FPS" | $VIDEOPLAYER
+            else
+                echo "Unsuported pipeline."
+            fi; fi;
+        else
+            $TERM $SSH_EXEC
+        fi
     fi

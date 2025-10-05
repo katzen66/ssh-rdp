@@ -47,7 +47,10 @@ Caveats:
     * Due to network problems, sometimes the audio could be desyncronized,
       it will recover by itself by speeding up, and could hear high-pitched sound.
     * Just clicking in the remote window does not pass the control to it, 
-      because that is the player, so hitting the choosed hotkey is mandatory.
+      because that is the player, so hitting the chosen hotkey is mandatory.
+    * Have to pick screen blindly for wayland implementation.
+    * Cannot use custom encode with pure gstreamer pipeline.
+    * No visible cursor when using portals.
 
 Suggestions:
     * For remote gaming, turning on cpu encoder may give better 
@@ -73,12 +76,17 @@ Use ssh-rdp.sh inputconfig to create or change the input config file
                     Use AUTO to guess, use ALL to capture everything.
                     Eg: alsa_output.pci-0000_00_1b.0.analog-stereo.monitor
 
-    --videoenc      Video encoder can be: cpu,cpurgb,amdgpu,amdgpu_hevc,intelgpu,nvgpu,nvgpu_hevc,zerocopy,custom or show
+    --videoenc      Video encoder can be: cpu,cpurgb,amdgpu,amdgpu_hevc,intelgpu,nvgpu,nvgpu_hevc,zerocopy,custom,null or show
                     "zerocopy" is experimental and causes ffmpeg to use kmsgrab
                     to grab the framebuffer and pass frames to vaapi encoder.
                     You've to run 'setcap cap_sys_admin+ep /usr/bin/ffmpeg' on the server to use zerocopy.
                     --display, --follow are ignored when using zerocopy.
                     specify "show" to print the options for each preset.
+
+    --use-portals   Use xdg-portals to pick a screen and start stream. Unneeded on X11, for capture with pipewire on Wayland.
+                    You will have to pick the screen blindly, you'll be dropped with functional input but no video.
+                    Can be used with ffmpeg (uses a fifo pipe to pass all other options to ffmpeg, laggy).
+                    For a pure gstreamer pipeline specify gstreamer.
 
     --customv       Specify a string for video encoder stuff when videoenc is set to custom
                     Eg: "-threads 1 -c:v h264_nvenc -preset llhq -delay 0 -zerolatency 1"
