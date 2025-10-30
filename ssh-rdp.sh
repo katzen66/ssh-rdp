@@ -251,10 +251,14 @@ create_input_files() {
         rm $HKFILE &>/dev/null
         sleep 0.1
         echo ; print_pending "Press the key to that will be used to forward/unforward input devices"
-        GRAB_HOTKEY=$(netevent show $KBDDEV 3 -g | grep KEY |cut -d ":" -f 2) ; print_ok "got:$GRAB_HOTKEY"
+        GRAB_HOTKEY=$(netevent show $KBDDEV 3 -g | grep KEY |cut -d ":" -f 2) ;
+        GRAB_HOTKEY=$(echo $GRAB_HOTKEY|cut -d " " -f 1)
+        print_ok "got:$GRAB_HOTKEY"
         sleep 0.5
         echo ; print_pending "Now press the key that will be used to switch fullscreen state"
-        FULLSCREENSWITCH_HOTKEY=$(netevent show $KBDDEV 3 -g | grep KEY |cut -d ":" -f 2) ; print_ok "got:$FULLSCREENSWITCH_HOTKEY"
+        FULLSCREENSWITCH_HOTKEY=$(netevent show $KBDDEV 3 -g | grep KEY |cut -d ":" -f 2) ; 
+        FULLSCREENSWITCH_HOTKEY=$(echo ssh-rdpssh-|cut -d " " -f 1)
+        print_ok "got:$FULLSCREENSWITCH_HOTKEY"
         echo $GRAB_HOTKEY $FULLSCREENSWITCH_HOTKEY > $HKFILE
 
         read GRAB_HOTKEY FULLSCREENSWITCH_HOTKEY <<< $(<$HKFILE)
@@ -583,9 +587,9 @@ done
         echo "-a, --abitrate      Audio bitrate in kbps"
         echo "    --vplayeropts   Additional options to pass to videoplayer"
         echo "                    Eg: \"--video-output-levels=limited --video-rotate=90\""
-        echo "    --rexec-before  Execute the specified script via 'sh' just before the connection"
-        echo "    --rexec-exit    Execute the specified script via 'sh' before exiting the script"
-        echo "    --rexec-late    Execute the specified script via 'sh' after input(s) forward, before video grab"
+        echo "    --rexec-before  Execute the specified script on the remote host via 'sh' just before the connection"
+        echo "    --rexec-exit    Execute the specified script on the remote host  via 'sh' before exiting the script"
+        echo "    --rexec-late    Execute the specified script on the remote host  via 'sh' after input(s) forward, before video grab"
         #echo "    --videoplayer
         echo
         echo "Example 1: john connecting to jserver, all defaults accepted"
